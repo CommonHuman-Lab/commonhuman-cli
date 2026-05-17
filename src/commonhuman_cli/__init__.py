@@ -22,8 +22,14 @@ from commonhuman_cli.logging import (
 from commonhuman_cli.output import (
     success, warning, error, info, debug,
     print_header, print_footer, print_scan_meta,
-    print_finding, print_errors,
+    print_finding, print_finding_severity, print_severity_summary, print_errors,
     proof_url,
+)
+from commonhuman_cli.severity import (
+    Severity,
+    CRITICAL, HIGH, MEDIUM, LOW, INFO,
+    severity_colour, severity_label, severity_score,
+    SEVERITY_ORDER,
 )
 from commonhuman_cli.prompts import safe_int, prompt, prompt_bool, section
 from commonhuman_cli.reporter import ScanResultBase
@@ -42,7 +48,11 @@ __all__ = [
     # output
     "success", "warning", "error", "info", "debug",
     "print_header", "print_footer", "print_scan_meta",
-    "print_finding", "print_errors", "proof_url",
+    "print_finding", "print_finding_severity", "print_severity_summary",
+    "print_errors", "proof_url",
+    # severity
+    "Severity", "CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO",
+    "severity_colour", "severity_label", "severity_score", "SEVERITY_ORDER",
     # prompts
     "safe_int", "prompt", "prompt_bool", "section",
     # reporter

@@ -13,7 +13,7 @@ from commonhuman_cli.colour import BOLD, CYAN, DIM, GREEN, RED, YELLOW
 __all__ = [
     "success", "warning", "error", "info", "debug",
     "print_header", "print_footer", "print_scan_meta",
-    "print_finding", "print_errors",
+    "print_finding", "print_finding_severity", "print_severity_summary", "print_errors",
     "proof_url",
 ]
 
@@ -115,6 +115,53 @@ def print_finding(
     if proof:
         print(f"     {'Proof':<10}: {CYAN(proof)}")
     print()
+
+
+def print_finding_severity(
+    index: int,
+    tag: str,
+    severity: str,
+    fields: list[tuple[str, str]],
+    proof: str = "",
+) -> None:
+    """Like print_finding but colours the tag by severity automatically.
+
+    Args:
+        index:    1-based finding number.
+        tag:      Finding label, e.g. "REFLECTED XSS".
+        severity: Severity string from ``commonhuman_cli.severity.Severity``.
+        fields:   Ordered list of (label, value) rows.
+        proof:    Optional PoC URL; omitted when empty.
+    """
+    from commonhuman_cli.severity import severity_colour, severity_label
+    colour_fn = severity_colour(severity)
+    full_tag  = f"{tag} [{severity_label(severity).strip()}]"
+    print(f"  {index}. {colour_fn(f'[{full_tag}]')}")
+    for label, value in fields:
+        print(f"     {label:<10}: {value}")
+    if proof:
+        print(f"     {'Proof':<10}: {CYAN(proof)}")
+    print()
+
+
+def print_severity_summary(counts: dict[str, int]) -> None:
+    """Print a compact severity count summary line.
+
+    Args:
+        counts: Dict mapping severity string → number of findings.
+                Unknown severity strings are grouped under "other".
+
+    Example output::
+
+        Severity  : CRITICAL 0  HIGH 3  MEDIUM 1  LOW 0  INFO 2
+    """
+    from commonhuman_cli.severity import SEVERITY_ORDER, severity_colour
+    parts: list[str] = []
+    for sev in SEVERITY_ORDER:
+        n = counts.get(sev, 0)
+        colour_fn = severity_colour(sev) if n > 0 else DIM
+        parts.append(colour_fn(f"{sev.upper()} {n}"))
+    print(f"  {'Severity':<14}: {'  '.join(parts)}")
 
 
 def print_errors(errors: list[str]) -> None:

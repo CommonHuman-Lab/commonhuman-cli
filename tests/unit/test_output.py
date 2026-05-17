@@ -8,10 +8,11 @@ import pytest
 
 from commonhuman_cli.output import (
     debug, error, info, print_errors, print_finding,
-    print_footer, print_header, print_scan_meta,
-    proof_url, success, warning,
+    print_finding_severity, print_footer, print_header, print_scan_meta,
+    print_severity_summary, proof_url, success, warning,
 )
 from commonhuman_cli.colour import RED, GREEN, YELLOW, CYAN
+from commonhuman_cli.severity import Severity
 
 
 class TestStatusPrinters:
@@ -188,3 +189,72 @@ class TestProofUrl:
         monkeypatch.setattr(urllib.parse, "urlencode", lambda *a, **kw: (_ for _ in ()).throw(ValueError("bad")))
         result = proof_url("https://example.com/page?q=x", "q", "payload")
         assert result == ""
+
+
+class TestPrintFindingSeverity:
+    def test_index_and_tag_in_output(self, capsys, no_colour):
+        print_finding_severity(1, "REFLECTED XSS", Severity.HIGH, [])
+        out = capsys.readouterr().out
+        assert "1." in out
+        assert "REFLECTED XSS" in out
+
+    def test_severity_label_in_tag(self, capsys, no_colour):
+        print_finding_severity(2, "DOM XSS", Severity.MEDIUM, [])
+        assert "MEDIUM" in capsys.readouterr().out
+
+    def test_fields_printed(self, capsys, no_colour):
+        print_finding_severity(3, "VULN", Severity.LOW, [("Param", "q"), ("URL", "https://x.com")])
+        out = capsys.readouterr().out
+        assert "Param" in out
+        assert "q" in out
+        assert "https://x.com" in out
+
+    def test_proof_url_printed_when_provided(self, capsys, no_colour):
+        print_finding_severity(4, "XSS", Severity.HIGH, [], proof="https://x.com?q=poc")
+        assert "https://x.com?q=poc" in capsys.readouterr().out
+
+    def test_proof_url_omitted_when_empty(self, capsys, no_colour):
+        print_finding_severity(5, "XSS", Severity.HIGH, [("A", "B")], proof="")
+        assert "Proof" not in capsys.readouterr().out
+
+    def test_critical_uses_colour(self, capsys, force_colour):
+        print_finding_severity(1, "STORED XSS", Severity.CRITICAL, [])
+        out = capsys.readouterr().out
+        assert "\033[" in out  # some ANSI escape present
+
+    def test_info_uses_dim(self, capsys, force_colour):
+        print_finding_severity(1, "NOTE", Severity.INFO, [])
+        out = capsys.readouterr().out
+        # DIM escape code present
+        assert "\033[" in out
+
+
+class TestPrintSeveritySummary:
+    def test_all_severity_levels_shown(self, capsys, no_colour):
+        counts = {"critical": 1, "high": 2, "medium": 0, "low": 0, "info": 0}
+        print_severity_summary(counts)
+        out = capsys.readouterr().out
+        assert "CRITICAL" in out
+        assert "HIGH" in out
+        assert "MEDIUM" in out
+
+    def test_counts_shown(self, capsys, no_colour):
+        counts = {"critical": 3, "high": 7, "medium": 2, "low": 0, "info": 1}
+        print_severity_summary(counts)
+        out = capsys.readouterr().out
+        assert "3" in out
+        assert "7" in out
+
+    def test_severity_label_present(self, capsys, no_colour):
+        print_severity_summary({})
+        assert "Severity" in capsys.readouterr().out
+
+    def test_empty_counts_shows_zeros(self, capsys, no_colour):
+        print_severity_summary({})
+        out = capsys.readouterr().out
+        assert "0" in out
+
+    def test_output_is_single_line(self, capsys, no_colour):
+        print_severity_summary({"high": 1})
+        lines = [l for l in capsys.readouterr().out.splitlines() if l.strip()]
+        assert len(lines) == 1

@@ -44,7 +44,8 @@ from commonhuman_cli.entrypoint import load_url_list, parse_headers
 | ------ | ------- |
 | `commonhuman_cli.colour` | ANSI colour functions, lazy TTY detection, banner rendering |
 | `commonhuman_cli.logging` | `FINDING` custom level, `StingLogger`, coloured handler, `setup_logging()` |
-| `commonhuman_cli.output` | Status printers, summary block helpers, `proof_url()` |
+| `commonhuman_cli.output` | Status printers, summary block helpers, `proof_url()`, severity-tagged findings |
+| `commonhuman_cli.severity` | `Severity` constants, ordering, colour mapping, and score helpers |
 | `commonhuman_cli.prompts` | Interactive prompt helpers for wizard-mode CLIs |
 | `commonhuman_cli.reporter` | `ScanResultBase` dataclass — thread-safe, serialisable |
 | `commonhuman_cli.entrypoint` | URL list loading, header parsing, exclude pattern compilation |
@@ -101,6 +102,26 @@ log.debug("raw response: %s", body[:200])           # CYAN [~]
 
 ---
 
+### `severity`
+
+Severity constants, ordering, and display helpers shared across all findings.
+
+```python
+from commonhuman_cli.severity import Severity, severity_colour, severity_label, severity_score
+
+Severity.CRITICAL  # "critical"
+Severity.HIGH      # "high"
+Severity.MEDIUM    # "medium"
+Severity.LOW       # "low"
+Severity.INFO      # "info"
+
+severity_colour("critical")  # RED
+severity_label("high")       # "HIGH"
+severity_score("medium")     # 3  (0=info … 5=critical)
+```
+
+---
+
 ### `output`
 
 One-liner status printers and structured summary block helpers.
@@ -108,8 +129,9 @@ One-liner status printers and structured summary block helpers.
 ```python
 from commonhuman_cli.output import (
     success, warning, error, info, debug,
-    print_header, print_footer, print_scan_meta, print_finding, print_errors,
-    proof_url,
+    print_header, print_footer, print_scan_meta,
+    print_finding, print_finding_severity, print_severity_summary,
+    print_errors, proof_url,
 )
 
 # Status lines
@@ -147,6 +169,23 @@ print_finding(
 
 print_errors(result.errors)
 print_footer()
+```
+
+For findings that carry a `Severity` value, use `print_finding_severity` and `print_severity_summary` instead of raw colour functions:
+
+```python
+from commonhuman_cli.severity import Severity
+
+print_finding_severity(
+    index=1,
+    tag="PROTOTYPE POLLUTION",
+    severity=Severity.HIGH,
+    fields=[("Source", "location.hash"), ("Sink", "_.merge()")],
+    proof="https://target.com/page#payload",
+)
+
+# End-of-scan summary row
+print_severity_summary({"critical": 0, "high": 2, "medium": 5, "low": 1, "info": 3})
 ```
 
 #### `proof_url()`
