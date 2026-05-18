@@ -26,13 +26,13 @@ Usage::
 from __future__ import annotations
 
 import hashlib
+import re
+import urllib.parse
 
 __all__ = ["render_sarif"]
 
-_SARIF_SCHEMA = (
-    "https://raw.githubusercontent.com/oasis-tcs/sarif-spec"
-    "/master/Schemata/sarif-schema-2.1.0.json"
-)
+# Use the SchemaStore URL — SARIF2006 flags the raw GitHub URL
+_SARIF_SCHEMA = "https://schemastore.azurewebsites.net/schemas/json/sarif-2.1.0-rtm.6.json"
 
 _LEVEL: dict[str, str] = {
     "critical": "error",
@@ -56,8 +56,10 @@ _HELP_URIS: dict[str, str] = {
     "jsonp_some":     "https://owasp.org/www-community/attacks/JSONP",
     "mixed_content":  "https://developer.mozilla.org/en-US/docs/Web/Security/Mixed_content",
     "leaked_cookie":  "https://owasp.org/www-community/controls/SecureCookieAttribute",
-    "open_redirect":  "https://cheatsheetseries.owasp.org/cheatsheets/Unvalidated_Redirects_and_Forwards_Cheat_Sheet.html",
-    "hsts":           "https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Strict_Transport_Security_Cheat_Sheet.html",
+    "open_redirect":  "https://cheatsheetseries.owasp.org/cheatsheets/"
+                      "Unvalidated_Redirects_and_Forwards_Cheat_Sheet.html",
+    "hsts":           "https://cheatsheetseries.owasp.org/cheatsheets/"
+                      "HTTP_Strict_Transport_Security_Cheat_Sheet.html",
     "vuln_lib":       "https://owasp.org/www-project-dependency-check/",
     "sri_missing":    "https://developer.mozilla.org/en-US/docs/Web/Security/Subresource_Integrity",
     "crlf":           "https://owasp.org/www-community/vulnerabilities/CRLF_Injection",
@@ -86,17 +88,59 @@ def _finding_message(f: dict) -> str:
 
 
 def _pascal(name: str) -> str:
-    """Convert 'Reflected XSS' → 'ReflectedXss' for SARIF rule name field."""
-    return "".join(w.capitalize() for w in name.replace("-", " ").split())
+    """Convert 'Reflected XSS' / 'JSONP / SOME' → 'ReflectedXss' / 'JsonpSome'."""
+    return "".join(w.capitalize() for w in re.split(r"[^a-zA-Z0-9]+", name) if w)
+
+
+def _safe_uri(uri: str) -> str:
+    """Percent-encode characters that violate RFC 3986 (e.g. payload in query)."""
+    try:
+        p = urllib.parse.urlparse(uri)
+        return urllib.parse.urlunparse(p._replace(
+            path=urllib.parse.quote(p.path, safe="/-._~"),
+            query=urllib.parse.quote(p.query, safe="=&+%"),
+        ))
+    except Exception:
+        return urllib.parse.quote(uri, safe=":/?#[]@!$&*+,;=-._~%")
 
 
 def _fingerprint(f: dict) -> str:
     """Stable SHA-256 fingerprint for deduplication (first 16 hex chars)."""
-    uri   = _finding_uri(f)
-    ftype = f.get("type", "")
-    param = f.get("parameter") or f.get("field") or ""
-    key   = f"{ftype}:{uri}:{param}"
+    key = f"{f.get('type', '')}:{_finding_uri(f)}:{f.get('parameter') or f.get('field') or ''}"
     return hashlib.sha256(key.encode()).hexdigest()[:16]
+
+
+def _make_rule(rule_id: str, name: str, description: str) -> dict:
+    help_uri = _HELP_URIS.get(rule_id, "")
+    rule: dict = {
+        "id":               rule_id,
+        "name":             _pascal(name),
+        "shortDescription": {"text": name},
+        "fullDescription":  {"text": description},
+        "help": {
+            "text":     f"{description}. See: {help_uri}" if help_uri else description,
+            "markdown": (
+                f"{description}.\n\nSee [{help_uri}]({help_uri})"
+                if help_uri else description
+            ),
+        },
+    }
+    if help_uri:
+        rule["helpUri"] = help_uri
+    return rule
+
+
+def _make_location(uri: str) -> dict:
+    safe = _safe_uri(uri)
+    snippet = {"text": uri}
+    return {
+        "physicalLocation": {
+            "artifactLocation": {"uri": safe},
+            "region":        {"startLine": 1, "snippet": snippet},
+            "contextRegion": {"startLine": 1, "snippet": snippet},
+        },
+        "logicalLocations": [{"name": uri, "kind": "url", "fullyQualifiedName": uri}],
+    }
 
 
 def render_sarif(
@@ -121,63 +165,32 @@ def render_sarif(
         A ``dict`` representing a valid SARIF 2.1.0 document.  Serialise with
         ``json.dump(sarif, fh, indent=2)``.
     """
-    # Build rule list and an O(1) lookup from rule_id → array index
     rule_index: dict[str, int] = {}
-    sarif_rules: list[dict] = []
-    for idx, (rule_id, (name, description)) in enumerate(rules.items()):
-        rule_index[rule_id] = idx
-        help_uri = _HELP_URIS.get(rule_id, "")
-        rule: dict = {
-            "id":               rule_id,
-            "name":             _pascal(name),
-            "shortDescription": {"text": name},
-            "fullDescription":  {"text": description},
-            "help": {
-                "text":     f"{description}. See: {help_uri}" if help_uri else description,
-                "markdown": (
-                    f"{description}.\n\nSee [{help_uri}]({help_uri})"
-                    if help_uri else description
-                ),
-            },
+    sarif_rules = [
+        (rule_index.setdefault(rid, i) or None,  # side-effect: populate index
+         _make_rule(rid, name, desc))
+        for i, (rid, (name, desc)) in enumerate(rules.items())
+    ]
+    sarif_rules_list = [r for _, r in sarif_rules]
+
+    sarif_results = [
+        {
+            "ruleId":    f.get("type", "unknown"),
+            "ruleIndex": rule_index.get(f.get("type", "unknown"), 0),
+            "level":     _sarif_level(f.get("severity", "medium")),
+            "message":   {"text": _finding_message(f)},
+            "locations": [_make_location(_finding_uri(f))],
+            "partialFingerprints": {"primaryLocationLineHash/v1": _fingerprint(f)},
         }
-        if help_uri:
-            rule["helpUri"] = help_uri
-        sarif_rules.append(rule)
-
-    sarif_results: list[dict] = []
-    for result in results:
-        for f in result.get("findings", []):
-            uri      = _finding_uri(f)
-            rule_id  = f.get("type", "unknown")
-            ridx     = rule_index.get(rule_id, 0)
-
-            sarif_result: dict = {
-                "ruleId":    rule_id,
-                "ruleIndex": ridx,
-                "level":     _sarif_level(f.get("severity", "medium")),
-                "message":   {"text": _finding_message(f)},
-                "locations": [
-                    {
-                        "physicalLocation": {
-                            # No uriBaseId: absolute http:// URIs must stand alone
-                            "artifactLocation": {"uri": uri},
-                            # GitHub Code Scanning requires a region; use line 1
-                            # as a placeholder — web findings have no source line
-                            "region": {"startLine": 1},
-                        }
-                    }
-                ],
-                # GitHub Advanced Security uses partialFingerprints for dedup
-                "partialFingerprints": {
-                    "primaryLocationLineHash/v1": _fingerprint(f),
-                },
-            }
-            sarif_results.append(sarif_result)
+        for result in results
+        for f in result.get("findings", [])
+    ]
 
     driver: dict = {
-        "name":    tool_name,
-        "version": tool_version,
-        "rules":   sarif_rules,
+        "name":     tool_name,
+        "fullName": f"{tool_name} Security Scanner",
+        "version":  tool_version,
+        "rules":    sarif_rules_list,
     }
     if information_uri:
         driver["informationUri"] = information_uri
@@ -187,6 +200,7 @@ def render_sarif(
         "version": "2.1.0",
         "runs": [
             {
+                "automationDetails": {"id": f"{tool_name}/"},
                 "tool":    {"driver": driver},
                 "results": sarif_results,
             }
