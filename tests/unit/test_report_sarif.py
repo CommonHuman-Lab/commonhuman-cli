@@ -77,8 +77,9 @@ class TestRenderSarifRules:
         out = render_sarif([], "T", "1.0", _RULES)
         rule = next(r for r in out["runs"][0]["tool"]["driver"]["rules"]
                     if r["id"] == "reflected_xss")
-        assert rule["name"] == "Reflected XSS"
-        assert rule["shortDescription"]["text"] == "XSS payload reflected in response"
+        assert rule["name"] == "ReflectedXss"
+        assert rule["shortDescription"]["text"] == "Reflected XSS"
+        assert rule["fullDescription"]["text"] == "XSS payload reflected in response"
 
     def test_empty_rules_dict(self):
         out = render_sarif([], "T", "1.0", {})
@@ -169,7 +170,7 @@ class TestRenderSarifResults:
         )
         assert len(out["runs"][0]["results"]) == 2
 
-    def test_uri_base_id_is_srcroot(self):
+    def test_no_uri_base_id_for_absolute_uri(self):
         out = render_sarif([_result([_finding()])], "T", "1.0", {})
         loc = out["runs"][0]["results"][0]["locations"][0]
-        assert loc["physicalLocation"]["artifactLocation"]["uriBaseId"] == "%SRCROOT%"
+        assert "uriBaseId" not in loc["physicalLocation"]["artifactLocation"]
