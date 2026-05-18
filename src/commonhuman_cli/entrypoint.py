@@ -9,6 +9,7 @@ __all__ = [
     "load_url_list",
     "compile_exclude_patterns",
     "parse_headers",
+    "parse_auth_cred",
     "validate_timeout",
 ]
 
@@ -65,6 +66,23 @@ def parse_headers(header_list: list[str]) -> dict[str, str]:
             k, _, v = h.partition(":")
             headers[k.strip()] = v.strip()
     return headers
+
+
+def parse_auth_cred(cred: str) -> tuple[str, str]:
+    """Split ``"username:password"`` into ``(username, password)``.
+
+    Splits on the first colon only, so passwords that themselves contain
+    colons are handled correctly.
+
+    Raises:
+        ValueError: *cred* is empty or contains no colon.
+    """
+    if not cred or ":" not in cred:
+        raise ValueError(
+            f"auth_cred must be in 'username:password' format, got {cred!r}"
+        )
+    username, _, password = cred.partition(":")
+    return username, password
 
 
 def validate_timeout(timeout: int, min_val: int = 5) -> None:

@@ -33,7 +33,9 @@ from commonhuman_cli.output import success, warning, error
 from commonhuman_cli.logging import setup_logging, get_logger
 from commonhuman_cli.reporter import ScanResultBase
 from commonhuman_cli.prompts import prompt, prompt_bool, section
-from commonhuman_cli.entrypoint import load_url_list, parse_headers
+from commonhuman_cli.entrypoint import load_url_list, parse_headers, parse_auth_cred
+from commonhuman_cli.report_html import render_html
+from commonhuman_cli.report_sarif import render_sarif
 ```
 
 ---
@@ -48,7 +50,9 @@ from commonhuman_cli.entrypoint import load_url_list, parse_headers
 | `commonhuman_cli.severity` | `Severity` constants, ordering, colour mapping, and score helpers |
 | `commonhuman_cli.prompts` | Interactive prompt helpers for wizard-mode CLIs |
 | `commonhuman_cli.reporter` | `ScanResultBase` dataclass — thread-safe, serialisable |
-| `commonhuman_cli.entrypoint` | URL list loading, header parsing, exclude pattern compilation |
+| `commonhuman_cli.entrypoint` | URL list loading, header parsing, exclude pattern compilation, auth-cred parsing |
+| `commonhuman_cli.report_html` | Self-contained HTML report renderer (stdlib only) |
+| `commonhuman_cli.report_sarif` | SARIF 2.1.0 report renderer for CI / GitHub code scanning (stdlib only) |
 
 ---
 
@@ -269,13 +273,69 @@ Boilerplate that every `__main__.py` needs, extracted once.
 ```python
 from commonhuman_cli.entrypoint import (
     load_url_list, compile_exclude_patterns, parse_headers, validate_timeout,
+    parse_auth_cred,
 )
 
 urls     = load_url_list(args.url_list)          # skips blanks and # comments, exit(2) on IOError
 patterns = compile_exclude_patterns(args.exclude) # exit(2) on bad regex
 headers  = parse_headers(args.header)             # ["Key:Val"] → {"Key": "Val"}
 validate_timeout(args.timeout)                    # warns to stderr if below minimum
+
+# Split "user:pass" (or "user:pa:ss") into (username, password)
+username, password = parse_auth_cred("admin:s3cr3t")
 ```
+
+`parse_auth_cred` splits on the first `:`, so passwords that contain colons work correctly. Raises `ValueError` if the string is blank or contains no colon.
+
+---
+
+### `report_html`
+
+Renders a self-contained HTML report from one or more scan result dicts. No external dependencies — the entire page (styles included) is emitted as a single string.
+
+```python
+from commonhuman_cli.report_html import render_html
+
+html = render_html(
+    results=[result.to_dict()],   # list of ScanResult.to_dict() outputs
+    tool_name="StingXSS",
+    tool_version="0.1.6",
+)
+
+with open("report.html", "w", encoding="utf-8") as fh:
+    fh.write(html)
+```
+
+Each finding is rendered with a severity badge and a collapsible detail table. Unknown/missing severities fall back to a neutral grey. HTML-special characters in finding values are always escaped.
+
+---
+
+### `report_sarif`
+
+Renders a [SARIF 2.1.0](https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html) document from one or more scan result dicts. Compatible with GitHub code scanning, VS Code SARIF Viewer, and any SAST tooling that accepts SARIF.
+
+```python
+from commonhuman_cli.report_sarif import render_sarif
+import json
+
+RULES = {
+    "reflected_xss": ("Reflected XSS",  "XSS payload reflected in HTTP response"),
+    "dom_xss":       ("DOM XSS",        "Tainted data flows from a source to a sink"),
+    # one entry per finding type your tool emits
+}
+
+sarif = render_sarif(
+    results=[result.to_dict() for result in all_results],
+    tool_name="StingXSS",
+    tool_version="0.1.6",
+    rules=RULES,
+)
+
+with open("results.sarif", "w", encoding="utf-8") as fh:
+    json.dump(sarif, fh, indent=2)
+```
+
+Severity mapping: `critical`/`high` → `error`, `medium` → `warning`, `low` → `note`, `info` → `none`. Unknown severities default to `warning`. Finding URL is resolved from `url → inject_url → endpoint → ""`.
 
 ---
 

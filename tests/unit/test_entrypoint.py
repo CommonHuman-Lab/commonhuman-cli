@@ -12,6 +12,7 @@ import pytest
 from commonhuman_cli.entrypoint import (
     compile_exclude_patterns,
     load_url_list,
+    parse_auth_cred,
     parse_headers,
     validate_timeout,
 )
@@ -110,6 +111,22 @@ class TestParseHeaders:
     def test_empty_value(self):
         result = parse_headers(["X-Empty:"])
         assert result["X-Empty"] == ""
+
+
+class TestParseAuthCred:
+    def test_splits_on_first_colon(self):
+        assert parse_auth_cred("alice:secret") == ("alice", "secret")
+
+    def test_password_with_colons_preserved(self):
+        assert parse_auth_cred("alice:pa:ss:word") == ("alice", "pa:ss:word")
+
+    def test_empty_string_raises(self):
+        with pytest.raises(ValueError, match="username:password"):
+            parse_auth_cred("")
+
+    def test_no_colon_raises(self):
+        with pytest.raises(ValueError, match="username:password"):
+            parse_auth_cred("justusername")
 
 
 class TestValidateTimeout:
