@@ -56,6 +56,15 @@ td     { padding: .6rem 1rem; border-bottom: 1px solid #f1f5f9; vertical-align: 
 tr:last-child td { border-bottom: none; }
 .badge { display: inline-block; padding: 2px 8px; border-radius: 4px;
          font-size: .7rem; font-weight: 600; color: #fff; }
+.sev-bar { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap;
+           padding: .75rem 1.5rem; border-bottom: 1px solid #e2e8f0;
+           background: #fff; }
+.sev-chip { display: inline-flex; align-items: center; gap: .35rem;
+            padding: .3rem .75rem; border-radius: 20px; font-size: .75rem;
+            font-weight: 700; color: #fff; letter-spacing: .03em; }
+.sev-chip .chip-count { font-size: .9rem; }
+.sev-label { font-size: .7rem; text-transform: uppercase; color: #94a3b8;
+             letter-spacing: .05em; margin-right: .25rem; }
 .no-findings { padding: 1.5rem; color: #64748b; text-align: center; font-size: .9rem; }
 .loc  { color: #2563eb; word-break: break-all; font-family: monospace; font-size: .78rem; }
 .kv   { font-size: .78rem; margin: 1px 0; }
@@ -65,6 +74,8 @@ footer { text-align: center; padding: 1rem; font-size: .75rem; color: #94a3b8; }
 
 _SKIP_FIELDS = frozenset({"type", "severity", "url", "inject_url", "endpoint"})
 
+_SEV_ORDER: dict[str, int] = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+
 
 def _esc(text: object) -> str:
     return _html.escape(str(text))
@@ -73,6 +84,34 @@ def _esc(text: object) -> str:
 def _sev_badge(sev: str) -> str:
     colour = _SEV_COLORS.get(sev.lower(), "#6b7280")
     return f'<span class="badge" style="background:{colour}">{_esc(sev.upper())}</span>'
+
+
+def _sev_bar(findings: list[dict]) -> str:
+    """Return a severity summary bar showing per-severity counts."""
+    counts: dict[str, int] = {}
+    for f in findings:
+        sev = f.get("severity", "info").lower()
+        counts[sev] = counts.get(sev, 0) + 1
+    if not counts:
+        return ""
+    chips = []
+    for sev in ("critical", "high", "medium", "low", "info"):
+        n = counts.get(sev)
+        if not n:
+            continue
+        colour = _SEV_COLORS.get(sev, "#6b7280")
+        chips.append(
+            f'<span class="sev-chip" style="background:{colour}">'
+            f'<span class="chip-count">{n}</span>'
+            f'&nbsp;{_esc(sev.upper())}'
+            f'</span>'
+        )
+    return (
+        f'<div class="sev-bar">'
+        f'<span class="sev-label">Findings</span>'
+        f'{"".join(chips)}'
+        f'</div>'
+    )
 
 
 def _finding_url(f: dict) -> str:
@@ -116,6 +155,7 @@ def _render_result(result: dict, idx: int) -> str:
     if not findings:
         body = '<div class="no-findings">No findings.</div>'
     else:
+        findings = sorted(findings, key=lambda f: _SEV_ORDER.get(f.get("severity", "info").lower(), 99))
         rows = []
         for i, f in enumerate(findings, 1):
             loc = _finding_url(f)
@@ -137,10 +177,13 @@ def _render_result(result: dict, idx: int) -> str:
             "</table>"
         )
 
+    sev_bar = _sev_bar(findings) if findings else ""
+
     return (
         f'<div class="run">'
         f'<div class="run-header"><h2>{idx}. {_esc(target)}</h2></div>'
         f'<div class="meta">{meta_html}</div>'
+        f"{sev_bar}"
         f"{body}"
         f"</div>"
     )
@@ -170,10 +213,8 @@ def render_html(
     else:
         ver_label = ""
 
-    title   = _esc(f"{ver_label} Scan Report" if ver_label else "Scan Report")
+    title   = _esc(f"{tool_name} Scan Report" if tool_name else "Scan Report")
     subline = f"Generated {_esc(now)}"
-    if ver_label:
-        subline += f" &middot; {_esc(ver_label)}"
 
     if results:
         runs_html = "".join(_render_result(r, i) for i, r in enumerate(results, 1))
