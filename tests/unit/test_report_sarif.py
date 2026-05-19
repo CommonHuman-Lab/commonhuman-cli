@@ -6,7 +6,10 @@ from __future__ import annotations
 
 import pytest
 
-from commonhuman_cli.report_sarif import render_sarif
+from unittest.mock import patch
+import urllib.parse
+
+from commonhuman_cli.report_sarif import render_sarif, _safe_uri
 
 
 _RULES: dict[str, tuple[str, str]] = {
@@ -174,3 +177,23 @@ class TestRenderSarifResults:
         out = render_sarif([_result([_finding()])], "T", "1.0", {})
         loc = out["runs"][0]["results"][0]["locations"][0]
         assert "uriBaseId" not in loc["physicalLocation"]["artifactLocation"]
+
+    def test_safe_uri_exception_fallback(self):
+        with patch("commonhuman_cli.report_sarif.urllib.parse.urlparse",
+                   side_effect=ValueError("bad uri")):
+            result = _safe_uri("https://example.com/<script>")
+        assert isinstance(result, str)
+        assert len(result) > 0
+
+
+class TestRenderSarifInformationUri:
+    def test_information_uri_set_in_driver(self):
+        out = render_sarif([], "T", "1.0", {},
+                           information_uri="https://github.com/CommonHuman-Lab/tool")
+        driver = out["runs"][0]["tool"]["driver"]
+        assert driver["informationUri"] == "https://github.com/CommonHuman-Lab/tool"
+
+    def test_no_information_uri_key_when_empty(self):
+        out = render_sarif([], "T", "1.0", {}, information_uri="")
+        driver = out["runs"][0]["tool"]["driver"]
+        assert "informationUri" not in driver

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import pytest
 
-from commonhuman_cli.report_html import render_html
+from commonhuman_cli.report_html import render_html, _sev_bar
 
 
 # ---------------------------------------------------------------------------
@@ -85,6 +85,9 @@ class TestRenderHtmlEmpty:
     def test_target_url_shown_in_result(self):
         out = render_html([_result(target="https://example.com/search?q=1")])
         assert "example.com" in out
+
+    def test_sev_bar_empty_findings_returns_empty_string(self):
+        assert _sev_bar([]) == ""
 
 
 # ---------------------------------------------------------------------------
