@@ -70,6 +70,42 @@ tr:last-child td { border-bottom: none; }
 .kv   { font-size: .78rem; margin: 1px 0; }
 .k    { color: #64748b; }
 footer { text-align: center; padding: 1rem; font-size: .75rem; color: #94a3b8; }
+
+/* Tabs */
+.tab-bar { display: flex; gap: 0; border-bottom: 2px solid #e2e8f0; background: #f8fafc; }
+.tab-btn { padding: .6rem 1.25rem; font-size: .8rem; font-weight: 600;
+           border: none; background: none; cursor: pointer; color: #64748b;
+           border-bottom: 2px solid transparent; margin-bottom: -2px;
+           letter-spacing: .03em; transition: color .15s, border-color .15s; }
+.tab-btn:hover { color: #0f172a; }
+.tab-btn.active { color: #2563eb; border-bottom-color: #2563eb; }
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+
+/* Dumped tables */
+.dump-section { padding: 1.25rem 1.5rem; border-bottom: 1px solid #f1f5f9; }
+.dump-section:last-child { border-bottom: none; }
+.dump-title { font-size: .8rem; font-weight: 700; text-transform: uppercase;
+              letter-spacing: .06em; color: #0f172a; margin-bottom: .75rem; }
+.dump-meta  { font-size: .72rem; color: #94a3b8; margin-bottom: .6rem; }
+.dump-table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+.dump-table th { background: #0f172a; color: #f8fafc; padding: .45rem .8rem;
+                 text-align: left; font-size: .72rem; letter-spacing: .05em; }
+.dump-table td { padding: .45rem .8rem; border-bottom: 1px solid #f1f5f9;
+                 font-family: monospace; font-size: .78rem; word-break: break-all; }
+.dump-table tr:last-child td { border-bottom: none; }
+.dump-table tr:nth-child(even) td { background: #f8fafc; }
+.null-val { color: #94a3b8; font-style: italic; }
+"""
+
+_JS = """
+function showTab(btn, panelId) {
+  var run = btn.closest('.run');
+  run.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
+  run.querySelectorAll('.tab-panel').forEach(function(p) { p.classList.remove('active'); });
+  btn.classList.add('active');
+  document.getElementById(panelId).classList.add('active');
+}
 """
 
 _SKIP_FIELDS = frozenset({"type", "severity", "url", "inject_url", "endpoint"})
@@ -87,7 +123,6 @@ def _sev_badge(sev: str) -> str:
 
 
 def _sev_bar(findings: list[dict]) -> str:
-    """Return a severity summary bar showing per-severity counts."""
     counts: dict[str, int] = {}
     for f in findings:
         sev = f.get("severity", "info").lower()
@@ -130,10 +165,64 @@ def _finding_details(f: dict) -> str:
     return f'<div>{"".join(parts)}</div>'
 
 
+def _render_table_dump(td: dict) -> str:
+    table   = td.get("table", "?")
+    columns = td.get("columns") or []
+    rows    = td.get("rows") or []
+    url     = td.get("url", "")
+    param   = td.get("parameter", "")
+    method  = td.get("method", "")
+
+    meta_parts = []
+    if url:
+        meta_parts.append(f'<span class="loc">{_esc(url)}</span>')
+    if param:
+        meta_parts.append(f'param: <code>{_esc(param)}</code>')
+    if method:
+        meta_parts.append(f'method: <code>{_esc(method)}</code>')
+    meta_html = " &nbsp;·&nbsp; ".join(meta_parts)
+
+    if not columns and not rows:
+        body = '<div class="no-findings">No rows returned.</div>'
+    else:
+        header_cells = "".join(f"<th>{_esc(c)}</th>" for c in columns)
+        row_htmls = []
+        for row in rows:
+            cells = []
+            for cell in row:
+                if cell is None or cell == "":
+                    cells.append('<td><span class="null-val">NULL</span></td>')
+                else:
+                    cells.append(f"<td>{_esc(cell)}</td>")
+            row_htmls.append(f"<tr>{''.join(cells)}</tr>")
+        body = (
+            '<div style="overflow-x:auto">'
+            '<table class="dump-table">'
+            f"<thead><tr>{header_cells}</tr></thead>"
+            f"<tbody>{''.join(row_htmls)}</tbody>"
+            "</table>"
+            "</div>"
+        )
+
+    row_count = f"{len(rows)} row{'s' if len(rows) != 1 else ''}"
+    col_count = f"{len(columns)} column{'s' if len(columns) != 1 else ''}"
+
+    return (
+        f'<div class="dump-section">'
+        f'<div class="dump-title">{_esc(table)}</div>'
+        f'<div class="dump-meta">{row_count} &nbsp;·&nbsp; {col_count}'
+        + (f" &nbsp;·&nbsp; {meta_html}" if meta_html else "")
+        + f'</div>'
+        f'{body}'
+        f'</div>'
+    )
+
+
 def _render_result(result: dict, idx: int) -> str:
-    target   = result.get("target", "")
-    findings = result.get("findings", [])
-    total    = result.get("total_findings", len(findings))
+    target      = result.get("target", "")
+    findings    = result.get("findings", [])
+    table_dumps = result.get("table_dumps") or []
+    total       = result.get("total_findings", len(findings))
 
     meta_items = [
         ("Duration",      f'{result.get("duration_s", 0)}s'),
@@ -152,8 +241,10 @@ def _render_result(result: dict, idx: int) -> str:
         for lbl, val in meta_items
     )
 
+    # Findings panel
     if not findings:
-        body = '<div class="no-findings">No findings.</div>'
+        findings_body = '<div class="no-findings">No findings.</div>'
+        sev_bar_html  = ""
     else:
         findings = sorted(findings, key=lambda f: _SEV_ORDER.get(f.get("severity", "info").lower(), 99))
         rows = []
@@ -167,7 +258,7 @@ def _render_result(result: dict, idx: int) -> str:
                 f"<td>{loc_html}</td>"
                 f"<td>{_finding_details(f)}</td></tr>"
             )
-        body = (
+        findings_body = (
             "<table>"
             "<thead><tr>"
             "<th>#</th><th>Type</th><th>Severity</th>"
@@ -176,16 +267,40 @@ def _render_result(result: dict, idx: int) -> str:
             f"<tbody>{''.join(rows)}</tbody>"
             "</table>"
         )
+        sev_bar_html = _sev_bar(findings)
 
-    sev_bar = _sev_bar(findings) if findings else ""
+    findings_panel_id = f"findings-{idx}"
+    tables_panel_id   = f"tables-{idx}"
+
+    findings_tab_label = f"Findings ({total})"
+    tables_tab_label   = f"Dumped Tables ({len(table_dumps)})"
+
+    # Tab bar
+    tables_btn_extra = "" if table_dumps else ' style="opacity:.4;cursor:default" disabled'
+    tab_bar = (
+        f'<div class="tab-bar">'
+        f'<button class="tab-btn active" onclick="showTab(this,\'{findings_panel_id}\')">'
+        f'{_esc(findings_tab_label)}</button>'
+        f'<button class="tab-btn"{tables_btn_extra} onclick="showTab(this,\'{tables_panel_id}\')">'
+        f'{_esc(tables_tab_label)}</button>'
+        f'</div>'
+    )
+
+    # Tables panel
+    if table_dumps:
+        tables_body = "".join(_render_table_dump(td) for td in table_dumps)
+    else:
+        tables_body = '<div class="no-findings">No tables dumped.</div>'
 
     return (
         f'<div class="run">'
         f'<div class="run-header"><h2>{idx}. {_esc(target)}</h2></div>'
         f'<div class="meta">{meta_html}</div>'
-        f"{sev_bar}"
-        f"{body}"
-        f"</div>"
+        f'{sev_bar_html}'
+        f'{tab_bar}'
+        f'<div id="{findings_panel_id}" class="tab-panel active">{findings_body}</div>'
+        f'<div id="{tables_panel_id}" class="tab-panel">{tables_body}</div>'
+        f'</div>'
     )
 
 
@@ -197,8 +312,9 @@ def render_html(
     """Generate a self-contained HTML scan report.
 
     Args:
-        results:      List of ``ScanResult.to_dict()`` dicts.
-        tool_name:    Tool name shown in the header (e.g. ``"StingXSS"``).
+        results:      List of ``ScanResult.to_dict()`` dicts, optionally with
+                      a ``table_dumps`` key from ``dumps_to_dict()``.
+        tool_name:    Tool name shown in the header (e.g. ``"BreachSQL"``).
         tool_version: Version string (e.g. ``"0.1.6"``).
 
     Returns:
@@ -231,6 +347,7 @@ def render_html(
         '<meta name="viewport" content="width=device-width,initial-scale=1">\n'
         f"<title>{title}</title>\n"
         f"<style>{_CSS}</style>\n"
+        f"<script>{_JS}</script>\n"
         "</head>\n"
         "<body>\n"
         f"<header><h1>{title}</h1><p>{subline}</p></header>\n"
