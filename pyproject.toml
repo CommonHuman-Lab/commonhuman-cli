@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "commonhuman-cli"
-version = "0.1.5"
+version = "0.1.6"
 description = "Shared CLI/terminal UX primitives for CommonHuman-Lab tools"
 readme = "README.md"
 license = { text = "AGPL-3.0-or-later" }
