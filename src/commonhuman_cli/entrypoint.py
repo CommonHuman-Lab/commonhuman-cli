@@ -7,6 +7,7 @@ import sys
 
 __all__ = [
     "load_url_list",
+    "load_wordlist",
     "compile_exclude_patterns",
     "parse_headers",
     "parse_auth_cred",
@@ -28,6 +29,28 @@ def load_url_list(path: str) -> list[str]:
             ]
     except OSError as e:
         print(f"[!] Cannot read URL list: {e}", file=sys.stderr)
+        sys.exit(2)
+
+
+def load_wordlist(path: str, sort_by_length: bool = False) -> list[str]:
+    """Read a wordlist file — one entry per line. Skips blanks and # comments.
+
+    sort_by_length=True: shorter entries first (faster signal acquisition on
+    common endpoints before rarer long paths).
+    Exits with code 2 on I/O error.
+    """
+    try:
+        with open(path) as fh:
+            entries = [
+                line.rstrip("\n")
+                for line in fh
+                if line.strip() and not line.strip().startswith("#")
+            ]
+        if sort_by_length:
+            entries.sort(key=lambda x: (len(x), x))
+        return entries
+    except OSError as e:
+        print(f"[!] Cannot read wordlist: {e}", file=sys.stderr)
         sys.exit(2)
 
 
