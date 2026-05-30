@@ -12,6 +12,7 @@ __all__ = [
     "parse_headers",
     "parse_auth_cred",
     "validate_timeout",
+    "add_output_args",
 ]
 
 
@@ -21,7 +22,7 @@ def load_url_list(path: str) -> list[str]:
     Exits with code 2 on I/O error.
     """
     try:
-        with open(path) as fh:
+        with open(path, encoding="utf-8") as fh:
             return [
                 line.strip()
                 for line in fh
@@ -40,7 +41,7 @@ def load_wordlist(path: str, sort_by_length: bool = False) -> list[str]:
     Exits with code 2 on I/O error.
     """
     try:
-        with open(path) as fh:
+        with open(path, encoding="utf-8") as fh:
             entries = [
                 line.rstrip("\n")
                 for line in fh
@@ -106,6 +107,28 @@ def parse_auth_cred(cred: str) -> tuple[str, str]:
         )
     username, _, password = cred.partition(":")
     return username, password
+
+
+def add_output_args(parser: "argparse.ArgumentParser") -> None:
+    """Add the standard --json / -o output flags to *parser*.
+
+    Registers:
+      ``--json``            suppress banner and print result as JSON to stdout
+      ``-o`` / ``--output`` write JSON result to FILE
+    """
+    import argparse as _ap
+    parser.add_argument(
+        "--json", action="store_true", dest="json_output",
+        help="Output results as JSON (suppresses banner/progress output)",
+    )
+    parser.add_argument(
+        "-o", "--output", default="", metavar="FILE",
+        help="Write JSON results to FILE",
+    )
+    parser.add_argument(
+        "--text", default="", metavar="FILE",
+        help="Write plain-text summary to FILE",
+    )
 
 
 def validate_timeout(timeout: int, min_val: int = 5) -> None:

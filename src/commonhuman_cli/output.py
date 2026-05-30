@@ -15,6 +15,8 @@ __all__ = [
     "print_header", "print_footer", "print_scan_meta",
     "print_finding", "print_finding_severity", "print_severity_summary", "print_errors",
     "proof_url",
+    "write_json_output",
+    "write_text_output",
 ]
 
 
@@ -171,6 +173,46 @@ def print_errors(errors: list[str]) -> None:
     print(RED("  Errors:"))
     for e in errors:
         print(f"    - {e}")
+
+
+# ---------------------------------------------------------------------------
+# JSON file output
+# ---------------------------------------------------------------------------
+
+def write_text_output(text: str, path: str) -> None:
+    """Write *text* to *path*, appending a trailing newline if absent.
+
+    Prints a ``[*] Saved to <path>`` confirmation on success, or an error to
+    stderr on failure.  A no-op when *path* is empty.
+    """
+    if not path:
+        return
+    try:
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(text)
+            if not text.endswith("\n"):
+                fh.write("\n")
+        info(f"Saved to {path}")
+    except OSError as exc:
+        error(f"Cannot write output: {exc}")
+
+
+def write_json_output(result: "Any", path: str) -> None:
+    """Write *result.to_dict()* as indented JSON to *path*.
+
+    Prints a ``[*] Saved to <path>`` confirmation on success, or an error to
+    stderr on failure.  A no-op when *path* is empty.
+    """
+    if not path:
+        return
+    import json as _json
+    try:
+        with open(path, "w", encoding="utf-8") as fh:
+            _json.dump(result.to_dict(), fh, indent=2)
+            fh.write("\n")
+        info(f"Saved to {path}")
+    except OSError as exc:
+        error(f"Cannot write output: {exc}")
 
 
 # ---------------------------------------------------------------------------
